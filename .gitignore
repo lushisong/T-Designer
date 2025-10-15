@@ -13,8 +13,7 @@ lib/
 *.pro.user.*
 
 # 构建文件
-Makefile*
-*.make
+#Makefile*
 *.qmake.cache
 
 # 编译生成的文件
@@ -39,6 +38,8 @@ ui_*.h
 image/
 lib/
 include/
+*.ico
+
 
 # 数据库文件（根据是否需要跟踪决定）
 # Model.db
