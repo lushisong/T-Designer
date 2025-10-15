@@ -23,7 +23,7 @@
 - 格式化: 建议使用 `clang-format`（Qt/Google 风格均可，保持一致）。
 
 ## Testing Guidelines
-- 当前未内置测试框架。建议在 `tests/` 引入 Qt Test 或 GoogleTest（文件命名 `*_test.cpp`）。
+- 当前未内置测试框架。建议在 `tests/` 引入 Qt Test（文件命名 `*_test.cpp`）。
 - 覆盖关键业务逻辑与自定义控件交互；将测试目标加入 `.pro` 后在本地构建运行。
 
 ## Commit & Pull Request Guidelines

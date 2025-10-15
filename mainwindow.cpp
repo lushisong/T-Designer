@@ -1,5 +1,10 @@
 ﻿#include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <ActiveQt/QAxObject>
+#include <ActiveQt/QAxWidget>
+#include <QTimer>
+#include <QFileInfo>
+#include <QStringList>
 bool isPenetrativeSolve=true;
 QMap<QString, QStringList> obsTemplates = {
     {"AC380_3P_u", {"AC380.u", "( 0 , 0 , 0 )", "( 380 , 0 , 0 )", "( 0 , 380 , 0 )", "( 0 , 0 , 380 )", "( 380 , 380 , 0 )", "( 380 , 0 , 380 )", "( 0 , 380 , 380 )", "( 380 , 380 , 380 )"}},
@@ -42,8 +47,8 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->mdiArea->setTabsClosable(true); //页面可关闭
     InitNavigatorTree();
 
-    dlgLoadSymbol=new DialogLoadSymbol(this);
-    dlgDialogSymbols=new DialogSymbols(this);
+    dlgLoadSymbol=nullptr;
+    dlgDialogSymbols=nullptr;
     dlgUnitManage=new DialogUnitManage(this);
     dlgFuncDefine=new DialogFuncDefine(this);
     dlgUnitAttr=new DialogUnitAttr(this);
@@ -73,7 +78,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     ui->BtnShowHidePreViewWidget->setText("图形预览▲");
     ui->widgetPreView->setVisible(false);
-    LoadLastOpenedProject();
+    QTimer::singleShot(0, this, &MainWindow::initAfterShow);
     ui->axWidgetPreview->setProperty("IsDrawCoord",false);
     ui->axWidgetPreview->setProperty("UseArrowCursor",true);
     ui->axWidgetDiagnose->setProperty("IsDrawCoord",false);
@@ -5875,6 +5880,72 @@ void MainWindow::UpdateFuncTree()
         ui->widget_func->setLayout(layout);
     }
     layout->addWidget(pDlgSelectFunctionDialog->GetTreeWidget());
+}
+
+void MainWindow::initializeMxModules()
+{
+    static bool initialized = false;
+    if (initialized) {
+        return;
+    }
+
+    QAxObject object("{4FF8F5E1-8D85-45CC-B58E-BE1CF4A5C3EC}");
+    object.dynamicCall("InitMxDrawOcx(const QString&,const QString&,const QString&,const QString&,const QString&)", "",
+                       QString::fromLocal8Bit("中国船舶重工集团公司第704研究所"),
+                       QString::fromLocal8Bit("电液系统"), "0510-83078024",
+                       "010ADE5E0DA2A305784A00001F22E8014E9A9FCF5957272AA51F7EA69E974AA5D173220AB9865714670FA0B2ED850000060A177AE70EC20BB6BE0000242ABDE1218C1C87E1F84B3CFA9D1A5FB7E0B8C0A8702F347CEEE340D84B85CBAB639EADA5C7717953A30000262A75D1DCB40BDD2D638097969BF91CB4EFC96862F3DB91F7D7292C97D270AD6EBC8EC0EFB13063444100001A22E98792BAD32A4231E8E85A70D588C1B7B782224023E9D27CD844ED721BC9F99D00000D120712AC0F10BFC62E976BEF515415B18F0000080AB8CA9D8405892A7C0000");
+
+    const QStringList iniOptions = {
+        "EnableUndo=Y",
+        "DisplayPrecision=500",
+        "EnablePropertyWindow=N",
+        "NOSHOWBOORDER=Y",
+        "DrawGridLine=Y",
+        "EnableClipboard=Y",
+        "EnableSingleSelection=Y",
+        "EnableDeleteKey=N",
+        "IsHighQualityTTf=Y",
+        "ObjectModifyEvent=Y",
+        "DynamicHighlight=Y",
+        "ISDISABLEEDITTEXT=Y"
+    };
+    object.dynamicCall("IniSet(const QString&)", iniOptions.join(","));
+
+    if (!GlobalBackAxWidget) {
+        GlobalBackAxWidget = new QAxWidget("{74A777F8-7A8F-4E7C-AF47-7074828086E2}");
+    }
+
+    if (!pApp) {
+        auto *mxApp = new MxDrawApplication();
+        pApp = reinterpret_cast<IMxDrawApplication *>(mxApp);
+    }
+
+    if (!dlgLoadSymbol) {
+        dlgLoadSymbol = new DialogLoadSymbol(this);
+    }
+    if (!dlgDialogSymbols) {
+        dlgDialogSymbols = new DialogSymbols(this);
+    }
+
+    const QString dwgPath = "C:/TBD/SPS/SPS_CDP.dwg";
+    const QString jpgPath = "C:/TBD/data/TempImage/SPS_CDP.jpg";
+    const QFileInfo dwgInfo(dwgPath);
+    const QFileInfo jpgInfo(jpgPath);
+    if (dwgInfo.exists()) {
+        if (!jpgInfo.exists() || dwgInfo.lastModified() > jpgInfo.lastModified()) {
+            pApp->dynamicCall("DwgToJpg(QString,QString,int,int)", dwgPath, jpgPath, 150, 85);
+        }
+    } else {
+        qWarning() << "DWG file not found:" << dwgPath;
+    }
+
+    initialized = true;
+}
+
+void MainWindow::initAfterShow()
+{
+    initializeMxModules();
+    LoadLastOpenedProject();
 }
 
 void MainWindow::LoadProject()

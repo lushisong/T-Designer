@@ -172,7 +172,11 @@ public:
     //static QMap<QString, QStringList> obsTemplates;
     SelectFunctionDialog *pDlgSelectFunctionDialog = nullptr;
 
+private:
+    void initializeMxModules();
+
 private slots:
+    void initAfterShow();
     void UpdateDwgBlkTagByPage_ID(int Page_ID,QString Handle,QString TagStr,QString ProjectStructure_ID);
 
     void on_BtnNavigatorShow_clicked();
