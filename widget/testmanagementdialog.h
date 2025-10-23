@@ -10,6 +10,8 @@
 #include "BO/test/testdefinition.h"
 #include "BO/test/testgeneratorservice.h"
 #include "BO/test/diagnosticmatrixbuilder.h"
+#include "BO/test/diagnosabilitymatrixrepository.h"
+#include "widget/diagnosabilitymatrixmodel.h"
 
 namespace Ui {
 class TestManagementDialog;
@@ -39,6 +41,8 @@ private slots:
     void on_btnApplyConstraints_clicked();
     void on_btnEvaluatePrediction_clicked();
     void on_btnBuildDecisionTree_clicked();
+    void on_filterTestTextChanged(const QString &text);
+    void on_filterFaultTextChanged(const QString &text);
 
 private:
     void initializeGenerator();
@@ -51,6 +55,9 @@ private:
     void configureTables();
     void rebuildMatrix();
     void refreshMatrixView();
+    void loadDiagnosabilityMatrix();
+    void applyMatrixFilters();
+    void updateMatrixInfoLabel();
     void refreshAllocationView();
     void refreshCandidateList();
     void refreshPredictionView();
@@ -76,6 +83,9 @@ private:
     ContainerEntity m_entity;
     QVector<ContainerEntity> m_childEntities;
     DiagnosticMatrixBuilder m_matrixBuilder;
+    DiagnosabilityMatrixRepository m_matrixRepository;
+    DiagnosabilityMatrixModel *m_matrixModel = nullptr;
+    DiagnosabilityMatrix m_loadedMatrix;
     QVariantMap m_analysisData;
     QStringList m_candidateTests;
     bool m_dirty = false;
