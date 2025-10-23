@@ -59,12 +59,63 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayoutMatrix">
        <item>
-        <widget class="QTableWidget" name="tableMatrix">
+        <layout class="QHBoxLayout" name="layoutMatrixFilter">
+         <item>
+          <widget class="QLabel" name="labelFilterTest">
+           <property name="text">
+            <string>测试过滤</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="editFilterTest">
+           <property name="placeholderText">
+            <string>输入测试代号，例如 t01</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="labelFilterFault">
+           <property name="text">
+            <string>故障过滤</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="editFilterFault">
+           <property name="placeholderText">
+            <string>输入故障代号，例如 f01</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacerMatrix">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableView" name="viewMatrix">
          <property name="selectionBehavior">
-          <enum>QAbstractItemView::SelectRows</enum>
+          <enum>QAbstractItemView::SelectItems</enum>
+         </property>
+         <property name="selectionMode">
+          <enum>QAbstractItemView::ExtendedSelection</enum>
          </property>
          <property name="editTriggers">
           <set>QAbstractItemView::NoEditTriggers</set>
+         </property>
+         <property name="alternatingRowColors">
+          <bool>true</bool>
          </property>
         </widget>
        </item>

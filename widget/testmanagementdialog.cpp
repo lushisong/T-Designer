@@ -11,6 +11,7 @@
 #include <QHeaderView>
 #include <QTreeWidgetItem>
 #include <QUuid>
+#include <QSet>
 
 #include "widget/testeditdialog.h"
 #include "widget/containerhierarchyutils.h"
@@ -28,11 +29,17 @@ TestManagementDialog::TestManagementDialog(int containerId, const QSqlDatabase &
     , m_containerId(containerId)
     , m_db(db)
     , m_repo(db)
+    , m_matrixRepository(db)
 {
     ui->setupUi(this);
     m_title = windowTitle();
 
     configureTables();
+
+    m_matrixModel = new DiagnosabilityMatrixModel(this);
+    ui->viewMatrix->setModel(m_matrixModel);
+    ui->viewMatrix->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    ui->viewMatrix->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
 
     connect(ui->btnClose, &QPushButton::clicked, this, &QDialog::reject);
     connect(ui->btnGenerate, &QPushButton::clicked, this, &TestManagementDialog::on_btnGenerate_clicked);
@@ -46,6 +53,8 @@ TestManagementDialog::TestManagementDialog(int containerId, const QSqlDatabase &
     connect(ui->btnApplyConstraints, &QPushButton::clicked, this, &TestManagementDialog::on_btnApplyConstraints_clicked);
     connect(ui->btnEvaluatePrediction, &QPushButton::clicked, this, &TestManagementDialog::on_btnEvaluatePrediction_clicked);
     connect(ui->btnBuildDecisionTree, &QPushButton::clicked, this, &TestManagementDialog::on_btnBuildDecisionTree_clicked);
+    connect(ui->editFilterTest, &QLineEdit::textChanged, this, &TestManagementDialog::on_filterTestTextChanged);
+    connect(ui->editFilterFault, &QLineEdit::textChanged, this, &TestManagementDialog::on_filterFaultTextChanged);
 
     loadData();
 }
@@ -64,11 +73,9 @@ void TestManagementDialog::configureTables()
     ui->tableTests->setSelectionMode(QAbstractItemView::SingleSelection);
     ui->tableTests->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
-    ui->tableMatrix->setColumnCount(4);
-    ui->tableMatrix->setHorizontalHeaderLabels({"测试", "故障", "检测", "隔离"});
-    ui->tableMatrix->horizontalHeader()->setStretchLastSection(true);
-    ui->tableMatrix->setSelectionBehavior(QAbstractItemView::SelectRows);
-    ui->tableMatrix->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ui->viewMatrix->horizontalHeader()->setStretchLastSection(false);
+    ui->viewMatrix->horizontalHeader()->setDefaultSectionSize(80);
+    ui->viewMatrix->verticalHeader()->setDefaultSectionSize(22);
 
     ui->tableTargetAllocation->setColumnCount(3);
     ui->tableTargetAllocation->setHorizontalHeaderLabels({"容器", "检测率", "隔离率"});
@@ -194,55 +201,118 @@ void TestManagementDialog::rebuildMatrix()
     ContainerData container(m_entity);
     container.setTests(m_tests);
     m_matrixBuilder.rebuild(container);
-    refreshMatrixView();
+    loadDiagnosabilityMatrix();
 }
 
 void TestManagementDialog::refreshMatrixView()
 {
-    const QVector<MatrixEntry> &entries = m_matrixBuilder.entries();
-    ui->tableMatrix->setRowCount(entries.size());
-    for (int row = 0; row < entries.size(); ++row) {
-        const MatrixEntry &entry = entries.at(row);
-        auto setItem = [&](int column, const QString &text) {
-            QTableWidgetItem *item = new QTableWidgetItem(text);
-            item->setData(Qt::UserRole, row);
-            ui->tableMatrix->setItem(row, column, item);
-        };
-        setItem(0, entry.testId);
-        setItem(1, entry.faultId);
-        setItem(2, entry.detects ? tr("是") : tr("否"));
-        setItem(3, entry.isolates ? tr("是") : tr("否"));
+    loadDiagnosabilityMatrix();
+}
+
+void TestManagementDialog::loadDiagnosabilityMatrix()
+{
+    if (!m_matrixModel)
+        return;
+
+    m_loadedMatrix = m_matrixRepository.loadLatestForContainer(m_containerId);
+    m_matrixModel->setMatrix(m_loadedMatrix);
+    ui->viewMatrix->resizeColumnsToContents();
+    applyMatrixFilters();
+    updateMatrixInfoLabel();
+    updateCoverage();
+}
+
+void TestManagementDialog::applyMatrixFilters()
+{
+    if (!m_matrixModel)
+        return;
+
+    const QString testFilter = ui->editFilterTest->text().trimmed();
+    const QString faultFilter = ui->editFilterFault->text().trimmed();
+
+    for (int column = 0; column < m_loadedMatrix.tests.size(); ++column) {
+        const DiagnosabilityTest &test = m_loadedMatrix.tests.at(column);
+        bool match = testFilter.isEmpty()
+            || test.code.contains(testFilter, Qt::CaseInsensitive)
+            || test.name.contains(testFilter, Qt::CaseInsensitive);
+        ui->viewMatrix->setColumnHidden(column, !match);
     }
 
-    CoverageStats stats = m_matrixBuilder.coverageStats();
-    if (stats.totalFaults == 0) {
-        ui->plainMatrixInfo->setPlainText(tr("尚无故障定义"));
+    for (int row = 0; row < m_loadedMatrix.faults.size(); ++row) {
+        const DiagnosabilityFault &fault = m_loadedMatrix.faults.at(row);
+        bool match = faultFilter.isEmpty()
+            || fault.code.contains(faultFilter, Qt::CaseInsensitive)
+            || fault.name.contains(faultFilter, Qt::CaseInsensitive);
+        ui->viewMatrix->setRowHidden(row, !match);
+    }
+}
+
+void TestManagementDialog::updateMatrixInfoLabel()
+{
+    if (m_loadedMatrix.tests.isEmpty() || m_loadedMatrix.faults.isEmpty()) {
+        ui->plainMatrixInfo->setPlainText(tr("尚未定义依赖矩阵数据"));
         return;
     }
 
+    QSet<int> detected;
+    QSet<int> isolated;
+    for (auto it = m_loadedMatrix.columnMap.constBegin(); it != m_loadedMatrix.columnMap.constEnd(); ++it) {
+        const QVector<DiagnosabilityCell> &cells = it.value();
+        for (const DiagnosabilityCell &cell : cells) {
+            if (cell.effect.compare(QStringLiteral("detect"), Qt::CaseInsensitive) == 0)
+                detected.insert(cell.faultId);
+            if (cell.effect.compare(QStringLiteral("isolate"), Qt::CaseInsensitive) == 0)
+                isolated.insert(cell.faultId);
+        }
+    }
+
     QString info;
-    info += tr("测试数量: %1\n").arg(stats.totalTests);
-    info += tr("故障数量: %1\n").arg(stats.totalFaults);
-    info += tr("检测覆盖: %1\n").arg(stats.detectedFaults.size());
-    info += tr("隔离覆盖: %1").arg(stats.isolatableFaults.size());
+    info += tr("测试数量: %1\n").arg(m_loadedMatrix.tests.size());
+    info += tr("故障数量: %1\n").arg(m_loadedMatrix.faults.size());
+    info += tr("检测覆盖: %1/%2\n").arg(detected.size()).arg(m_loadedMatrix.faults.size());
+    info += tr("隔离覆盖: %1/%2").arg(isolated.size()).arg(m_loadedMatrix.faults.size());
+    if (!m_loadedMatrix.version.isEmpty())
+        info += tr("\n版本: %1").arg(m_loadedMatrix.version);
     ui->plainMatrixInfo->setPlainText(info);
 }
 
 void TestManagementDialog::updateCoverage()
 {
-    CoverageStats stats = m_matrixBuilder.coverageStats();
-    if (stats.totalFaults == 0) {
-        ui->labelCoverage->setText(tr("测试: %1，尚无故障模型").arg(stats.totalTests));
+    if (m_loadedMatrix.tests.isEmpty() || m_loadedMatrix.faults.isEmpty()) {
+        ui->labelCoverage->setText(tr("测试: %1，尚无故障模型").arg(m_loadedMatrix.tests.size()));
         return;
     }
 
+    QSet<int> detected;
+    QSet<int> isolated;
+    for (auto it = m_loadedMatrix.columnMap.constBegin(); it != m_loadedMatrix.columnMap.constEnd(); ++it) {
+        const QVector<DiagnosabilityCell> &cells = it.value();
+        for (const DiagnosabilityCell &cell : cells) {
+            if (cell.effect.compare(QStringLiteral("detect"), Qt::CaseInsensitive) == 0)
+                detected.insert(cell.faultId);
+            if (cell.effect.compare(QStringLiteral("isolate"), Qt::CaseInsensitive) == 0)
+                isolated.insert(cell.faultId);
+        }
+    }
+
     ui->labelCoverage->setText(
-        tr("测试: %1，故障: %2，检测覆盖: %3/%4，隔离覆盖: %5")
-            .arg(stats.totalTests)
-            .arg(stats.totalFaults)
-            .arg(stats.detectedFaults.size())
-            .arg(stats.totalFaults)
-            .arg(stats.isolatableFaults.size()));
+        tr("测试: %1，故障: %2，检测覆盖: %3/%2，隔离覆盖: %4/%2")
+            .arg(m_loadedMatrix.tests.size())
+            .arg(m_loadedMatrix.faults.size())
+            .arg(detected.size())
+            .arg(isolated.size()));
+}
+
+void TestManagementDialog::on_filterTestTextChanged(const QString &text)
+{
+    Q_UNUSED(text);
+    applyMatrixFilters();
+}
+
+void TestManagementDialog::on_filterFaultTextChanged(const QString &text)
+{
+    Q_UNUSED(text);
+    applyMatrixFilters();
 }
 
 bool TestManagementDialog::saveChanges()
