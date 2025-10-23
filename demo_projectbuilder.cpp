@@ -34,11 +34,17 @@ inline bool execQuery(QSqlQuery &query, const QString &sql, QString *errorMessag
 inline bool prepareAndExec(QSqlQuery &query, const QString &sql, const QList<QVariant> &values, QString *errorMessage)
 {
     query.prepare(sql);
-    for (int i = 0; i < values.size(); ++i)
+    qDebug() << "[prepareAndExec] SQL:" << sql;
+    qDebug() << "[prepareAndExec] 参数数量:" << values.size();
+    for (int i = 0; i < values.size(); ++i) {
         query.bindValue(i, values.at(i));
+        qDebug() << "[prepareAndExec] 绑定参数[" << i << "]:" << values.at(i) << ", 类型:" << values.at(i).typeName();
+    }
     if (!query.exec()) {
         if (errorMessage)
             *errorMessage = QString("SQL error: %1 (%2)").arg(query.lastError().text(), sql);
+        qDebug() << "[prepareAndExec] 执行失败:" << query.lastError().text();
+        qDebug() << "[prepareAndExec] 数据库错误代码:" << query.lastError().number();
         return false;
     }
     return true;
@@ -813,31 +819,45 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
         return false;
     }
 
+    qDebug() << "[DEBUG] container_state_interface 表的列:" << stateInterfaceColumns;
+
     const QStringList stateInterfacePriority = {
-        QString("id"),
         QString("state_id"),
         QString("interface_id"),
         QString("constraint")
     };
 
     const QList<QVariantMap> stateInterfaceRows = {
-        QVariantMap{{QString("id"), QVariant(1)}, {QString("state_id"), QVariant(1)}, {QString("interface_id"), QVariant(1)}, {QString("constraint"), QString("PSU-1.Vout=24V")}},
-        QVariantMap{{QString("id"), QVariant(2)}, {QString("state_id"), QVariant(2)}, {QString("interface_id"), QVariant(1)}, {QString("constraint"), QString("PSU-1.Vout=0V")}},
-        QVariantMap{{QString("id"), QVariant(3)}, {QString("state_id"), QVariant(3)}, {QString("interface_id"), QVariant(3)}, {QString("constraint"), QString("ACT-1.Pressure=8bar")}},
-        QVariantMap{{QString("id"), QVariant(4)}, {QString("state_id"), QVariant(4)}, {QString("interface_id"), QVariant(3)}, {QString("constraint"), QString("ACT-1.Pressure=0bar")}},
-        QVariantMap{{QString("id"), QVariant(5)}, {QString("state_id"), QVariant(5)}, {QString("interface_id"), QVariant(4)}, {QString("constraint"), QString("Subsystem.Pressure=8bar")}},
-        QVariantMap{{QString("id"), QVariant(6)}, {QString("state_id"), QVariant(6)}, {QString("interface_id"), QVariant(4)}, {QString("constraint"), QString("Subsystem.Pressure=0bar")}}
+        QVariantMap{{QString("state_id"), QVariant(1)}, {QString("interface_id"), QVariant(1)}, {QString("constraint"), QString("PSU-1.Vout=24V")}},
+        QVariantMap{{QString("state_id"), QVariant(2)}, {QString("interface_id"), QVariant(1)}, {QString("constraint"), QString("PSU-1.Vout=0V")}},
+        QVariantMap{{QString("state_id"), QVariant(3)}, {QString("interface_id"), QVariant(3)}, {QString("constraint"), QString("ACT-1.Pressure=8bar")}},
+        QVariantMap{{QString("state_id"), QVariant(4)}, {QString("interface_id"), QVariant(3)}, {QString("constraint"), QString("ACT-1.Pressure=0bar")}},
+        QVariantMap{{QString("state_id"), QVariant(5)}, {QString("interface_id"), QVariant(4)}, {QString("constraint"), QString("Subsystem.Pressure=8bar")}},
+        QVariantMap{{QString("state_id"), QVariant(6)}, {QString("interface_id"), QVariant(4)}, {QString("constraint"), QString("Subsystem.Pressure=0bar")}}
     };
 
+    int rowIndex = 0;
     for (const QVariantMap &row : stateInterfaceRows) {
+        rowIndex++;
+        qDebug() << "[DEBUG] 处理第" << rowIndex << "行数据";
+        qDebug() << "[DEBUG] 行数据内容:" << row;
+
         QStringList insertColumns;
         QVariantList insertValues;
         for (const QString &column : stateInterfacePriority) {
             if (stateInterfaceColumns.contains(column) && row.contains(column)) {
                 insertColumns.append(column);
                 insertValues.append(row.value(column));
+                qDebug() << "[DEBUG] 添加列:" << column << ", 值:" << row.value(column);
+            } else {
+                qDebug() << "[DEBUG] 跳过列:" << column 
+                         << ", 表中存在:" << stateInterfaceColumns.contains(column)
+                         << ", 行中存在:" << row.contains(column);
             }
         }
+
+        qDebug() << "[DEBUG] insertColumns 大小:" << insertColumns.size() << ", 内容:" << insertColumns;
+        qDebug() << "[DEBUG] insertValues 大小:" << insertValues.size() << ", 内容:" << insertValues;
 
         if (!insertColumns.contains(QString("state_id")) || !insertColumns.contains(QString("interface_id"))) {
             if (errorMessage)
@@ -850,13 +870,28 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
         for (int i = 0; i < insertColumns.size(); ++i)
             placeholders.append(QString("?"));
 
+        // 处理 SQL 保留关键字（如 constraint），需要用引号包裹
+        QStringList quotedColumns;
+        for (const QString &col : insertColumns) {
+            if (col == QString("constraint")) {
+                quotedColumns.append(QString("\"constraint\""));
+            } else {
+                quotedColumns.append(col);
+            }
+        }
+
         const QString sql = QString("INSERT INTO container_state_interface (%1) VALUES (%2)")
-                                .arg(insertColumns.join(", "), placeholders.join(", "));
+                                .arg(quotedColumns.join(", "), placeholders.join(", "));
+
+        qDebug() << "[DEBUG] 准备执行 SQL:" << sql;
+        qDebug() << "[DEBUG] 占位符数量:" << placeholders.size();
 
         if (!prepareAndExec(query, sql, insertValues, errorMessage)) {
+            qDebug() << "[DEBUG] SQL 执行失败! 错误:" << *errorMessage;
             cleanup();
             return false;
         }
+        qDebug() << "[DEBUG] 第" << rowIndex << "行插入成功";
     }
 
     const QList<QList<QVariant>> functionDefinitions = {
