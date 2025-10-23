@@ -104,6 +104,7 @@ SOURCES += \
     widget/containertreedialog.cpp \
     widget/containerhierarchyutils.cpp \
     widget/testmanagementdialog.cpp \
+    widget/diagnosabilitymatrixmodel.cpp \
     widget/testeditdialog.cpp \
     widget/functionsymbolpickerdialog.cpp \
     demo_projectbuilder.cpp \
@@ -112,6 +113,7 @@ SOURCES += \
     BO/container/containerdata.cpp \
     BO/container/behavioraggregator.cpp \
     BO/behavior/z3simplifier.cpp \
+    BO/behavior/smtaggregationservice.cpp \
     BO/function/functiondependencyresolver.cpp \
     BO/function/tmodelvalidator.cpp \
     BO/function/functionrepository.cpp \
@@ -119,6 +121,7 @@ SOURCES += \
     BO/test/testdefinition.cpp \
     BO/test/testgeneratorservice.cpp \
     BO/test/diagnosticmatrixbuilder.cpp \
+    BO/test/diagnosabilitymatrixrepository.cpp \
     BO/containerrepository.cpp \
     BO/componententity.cpp \
     BO/systementity.cpp \
@@ -197,6 +200,7 @@ HEADERS += \
     widget/containerhierarchyutils.h \
     widget/functionmanagerdialog.h \
     widget/testmanagementdialog.h \
+    widget/diagnosabilitymatrixmodel.h \
     widget/testeditdialog.h \
     widget/functionsymbolpickerdialog.h \
     demo_projectbuilder.h \
@@ -205,6 +209,7 @@ HEADERS += \
     BO/container/containerdata.h \
     BO/container/behavioraggregator.h \
     BO/behavior/z3simplifier.h \
+    BO/behavior/smtaggregationservice.h \
     BO/function/functiondependencyresolver.h \
     BO/function/functioninfo.h \
     BO/function/tmodelvalidator.h \
@@ -213,6 +218,7 @@ HEADERS += \
     BO/test/testdefinition.h \
     BO/test/testgeneratorservice.h \
     BO/test/diagnosticmatrixbuilder.h \
+    BO/test/diagnosabilitymatrixrepository.h \
     BO/containerrepository.h \
     BO/componententity.h \
     BO/systementity.h \
@@ -222,6 +228,8 @@ HEADERS += \
     DO/model.h \
     DO/parameter.h \
     DO/containerentity.h \
+    DO/componentsmtdefinition.h \
+    DO/diagnosis/diagnosabilitymatrix.h \
     sqlitedatabase.h \
     mythread.h \
     solverrunnable.h \

@@ -1,6 +1,7 @@
 ﻿#include "demo_projectbuilder.h"
 
 #include "common.h"
+#include "BO/behavior/smtaggregationservice.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -14,6 +15,7 @@
 #include <QSqlError>
 #include <QTextStream>
 #include <QDateTime>
+#include <QDebug>
 
 #include <QDomDocument>
 
@@ -228,7 +230,7 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
 
     const QStringList createStatements = {
         "CREATE TABLE IF NOT EXISTS ProjectStructure (ProjectStructure_ID INTEGER PRIMARY KEY, Structure_ID TEXT, Structure_INT TEXT, Parent_ID INTEGER, Struct_Desc TEXT)",
-        "CREATE TABLE IF NOT EXISTS Equipment (Equipment_ID INTEGER PRIMARY KEY, ProjectStructure_ID INTEGER, DT TEXT, Type TEXT, Eqpt_Category TEXT, Name TEXT, Desc TEXT, PartCode TEXT, SymbRemark TEXT, OrderNum TEXT, Factory TEXT, TVariable TEXT, TModel TEXT, Structure TEXT, RepairInfo TEXT, Picture TEXT, MTBF TEXT)",
+        "CREATE TABLE IF NOT EXISTS Equipment (Equipment_ID INTEGER PRIMARY KEY, ProjectStructure_ID INTEGER, DT TEXT, Type TEXT, Eqpt_Category TEXT, Name TEXT, Desc TEXT, PartCode TEXT, SymbRemark TEXT, OrderNum TEXT, Factory TEXT, TVariable TEXT, TVariableLegacy TEXT, TModel TEXT, TModelLegacy TEXT, Structure TEXT, RepairInfo TEXT, Picture TEXT, MTBF TEXT)",
         "CREATE TABLE IF NOT EXISTS EquipmentDiagnosePara (DiagnoseParaID INTEGER PRIMARY KEY, Equipment_ID INTEGER, Name TEXT, Unit TEXT, CurValue TEXT, DefaultValue TEXT, Remark TEXT)",
         "CREATE TABLE IF NOT EXISTS Symbol (Symbol_ID INTEGER PRIMARY KEY, Equipment_ID INTEGER, Page_ID INTEGER, Symbol TEXT, Symbol_Category TEXT, Symbol_Desc TEXT, Designation TEXT, Symbol_Handle TEXT, Symbol_Remark TEXT, FunDefine TEXT, FuncType TEXT, SourceConn INTEGER, ExecConn INTEGER, SourcePrior INTEGER, InterConnect TEXT, Show_DT TEXT)",
         "CREATE TABLE IF NOT EXISTS Symb2TermInfo (Symb2TermInfo_ID INTEGER PRIMARY KEY, Symbol_ID INTEGER, ConnNum TEXT, ConnDesc TEXT)",
@@ -255,8 +257,11 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
         "CREATE TABLE IF NOT EXISTS container_component (container_id INTEGER NOT NULL, equipment_id INTEGER NOT NULL, role TEXT, PRIMARY KEY (container_id, equipment_id))",
         "CREATE TABLE IF NOT EXISTS container_interface (interface_id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL, name TEXT NOT NULL, direction TEXT NOT NULL, signal_category TEXT NOT NULL, signal_subtype TEXT, physical_domain TEXT, default_unit TEXT, description TEXT, inherits_interface_id INTEGER)",
         "CREATE TABLE IF NOT EXISTS container_interface_binding (binding_id INTEGER PRIMARY KEY AUTOINCREMENT, interface_id INTEGER NOT NULL, equipment_id INTEGER, terminal_id INTEGER, connect_line_id INTEGER, binding_role TEXT)",
+        "CREATE TABLE IF NOT EXISTS container_interface_link (link_id INTEGER PRIMARY KEY AUTOINCREMENT, parent_container_id INTEGER NOT NULL, from_interface_id INTEGER NOT NULL, to_interface_id INTEGER NOT NULL, link_type TEXT DEFAULT 'connect', notes TEXT)",
         "CREATE TABLE IF NOT EXISTS container_state (state_id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL, name TEXT NOT NULL, state_type TEXT NOT NULL, derived_from_children INTEGER NOT NULL DEFAULT 0, probability REAL, rationale TEXT, analysis_scope TEXT)",
         "CREATE TABLE IF NOT EXISTS container_state_behavior (behavior_id INTEGER PRIMARY KEY AUTOINCREMENT, state_id INTEGER NOT NULL, representation TEXT NOT NULL, expression TEXT NOT NULL, notes TEXT)",
+        "CREATE TABLE IF NOT EXISTS container_state_composition (composition_id INTEGER PRIMARY KEY AUTOINCREMENT, parent_state_id INTEGER NOT NULL, child_state_id INTEGER NOT NULL, relation TEXT DEFAULT 'includes')",
+        "CREATE TABLE IF NOT EXISTS component_smt (component_id INTEGER NOT NULL, state_code TEXT NOT NULL, display_name TEXT, smt_script TEXT NOT NULL, metadata_json TEXT, PRIMARY KEY (component_id, state_code))",
         "CREATE TABLE IF NOT EXISTS container_state_interface (id INTEGER PRIMARY KEY AUTOINCREMENT, state_id INTEGER NOT NULL, interface_id INTEGER NOT NULL, constraint TEXT)",
         "CREATE TABLE IF NOT EXISTS function_definition (function_id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL, parent_function_id INTEGER, name TEXT NOT NULL, description TEXT, requirement TEXT, expected_output TEXT, detection_rule TEXT, auto_generated INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS function_io (io_id INTEGER PRIMARY KEY AUTOINCREMENT, function_id INTEGER NOT NULL, io_type TEXT NOT NULL, name TEXT NOT NULL, interface_id INTEGER, default_value TEXT, expression TEXT, description TEXT)",
@@ -269,7 +274,11 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
         "CREATE TABLE IF NOT EXISTS test_plan_candidate (candidate_id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL, name TEXT NOT NULL, description TEXT, total_cost REAL, total_duration REAL, selection_notes TEXT)",
         "CREATE TABLE IF NOT EXISTS test_plan_candidate_item (candidate_id INTEGER NOT NULL, test_id INTEGER NOT NULL, PRIMARY KEY (candidate_id, test_id))",
         "CREATE TABLE IF NOT EXISTS diagnosis_tree (tree_id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL, name TEXT, description TEXT)",
-        "CREATE TABLE IF NOT EXISTS diagnosis_tree_node (node_id INTEGER PRIMARY KEY AUTOINCREMENT, tree_id INTEGER NOT NULL, parent_node_id INTEGER, test_id INTEGER, state_id INTEGER, outcome TEXT, comment TEXT)"
+        "CREATE TABLE IF NOT EXISTS diagnosis_tree_node (node_id INTEGER PRIMARY KEY AUTOINCREMENT, tree_id INTEGER NOT NULL, parent_node_id INTEGER, test_id INTEGER, state_id INTEGER, outcome TEXT, comment TEXT)",
+        "CREATE TABLE IF NOT EXISTS diagnosis_fault (fault_id INTEGER PRIMARY KEY AUTOINCREMENT, state_id INTEGER NOT NULL, code TEXT NOT NULL, name TEXT, description TEXT, category TEXT, severity TEXT, metadata_json TEXT)",
+        "CREATE TABLE IF NOT EXISTS diagnosis_test (diagnosis_test_id INTEGER PRIMARY KEY AUTOINCREMENT, test_id INTEGER NOT NULL, code TEXT NOT NULL, name TEXT, description TEXT, test_type TEXT, scope TEXT, metadata_json TEXT)",
+        "CREATE TABLE IF NOT EXISTS diagnosis_matrix (matrix_id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL, version TEXT, notes TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE TABLE IF NOT EXISTS diagnosis_matrix_entry (matrix_id INTEGER NOT NULL, diagnosis_test_id INTEGER NOT NULL, fault_id INTEGER NOT NULL, effect TEXT NOT NULL, weight REAL, evidence_type TEXT, notes TEXT, PRIMARY KEY (matrix_id, diagnosis_test_id, fault_id))"
     };
 
     for (const QString &statement : createStatements) {
@@ -280,6 +289,10 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
     }
 
     const QStringList tablesToReset = {
+        QString("diagnosis_matrix_entry"),
+        QString("diagnosis_matrix"),
+        QString("diagnosis_test"),
+        QString("diagnosis_fault"),
         QString("diagnosis_tree_node"),
         QString("diagnosis_tree"),
         QString("test_plan_candidate_item"),
@@ -293,9 +306,12 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
         QString("function_io"),
         QString("function_definition"),
         QString("container_state_interface"),
+        QString("container_state_composition"),
+        QString("component_smt"),
         QString("container_state_behavior"),
         QString("container_state"),
         QString("container_interface_binding"),
+        QString("container_interface_link"),
         QString("container_interface"),
         QString("container_component"),
         QString("container_hierarchy"),
@@ -382,7 +398,9 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
          QString("SPS_M_BAT-1"),
          QString("1"),
          QString("DemoWorks"),
+         psuSmtVariables(),
          QString("PSU-1.Vout"),
+         QString(),
          psuTModel(),
          QString("107009901"),
          QString(),
@@ -399,7 +417,9 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
          QString("SPS_M_K-1"),
          QString("2"),
          QString("DemoWorks"),
+         actuatorSmtVariables(),
          QString("ACT-1.Cmd"),
+         QString(),
          coilTModel(),
          QString("102000100"),
          QString(),
@@ -408,7 +428,25 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
     };
     for (const auto &row : equipments) {
         if (!prepareAndExec(query,
-                            "INSERT INTO Equipment (Equipment_ID, ProjectStructure_ID, DT, Type, Eqpt_Category, Name, Desc, PartCode, SymbRemark, OrderNum, Factory, TVariable, TModel, Structure, RepairInfo, Picture, MTBF) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            "INSERT INTO Equipment (Equipment_ID, ProjectStructure_ID, DT, Type, Eqpt_Category, Name, Desc, PartCode, SymbRemark, OrderNum, Factory, TVariable, TVariableLegacy, TModel, TModelLegacy, Structure, RepairInfo, Picture, MTBF) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            row, errorMessage)) {
+            cleanup();
+            return false;
+        }
+    }
+
+    const QList<QList<QVariant>> componentSmtRows = {
+        {1, QString("variables"), QString("PSU 变量"), psuSmtVariables(), QVariant()},
+        {1, QString("normal"), QString("PSU 正常"), psuNormalSmt(), QVariant()},
+        {1, QString("fault_output_drop"), QString("PSU 输出失效"), psuFaultSmt(), QVariant()},
+        {2, QString("variables"), QString("执行器变量"), actuatorSmtVariables(), QVariant()},
+        {2, QString("normal"), QString("执行器正常"), actuatorNormalSmt(), QVariant()},
+        {2, QString("fault_stuck"), QString("执行器卡滞"), actuatorFaultSmt(), QVariant()}
+    };
+
+    for (const auto &row : componentSmtRows) {
+        if (!prepareAndExec(query,
+                            "INSERT OR REPLACE INTO component_smt (component_id, state_code, display_name, smt_script, metadata_json) VALUES (?,?,?,?,?)",
                             row, errorMessage)) {
             cleanup();
             return false;
@@ -631,13 +669,26 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
         }
     }
 
+    const QList<QList<QVariant>> containerInterfaceLinks = {
+        {2, 1, 2, QString("connect"), QVariant()},
+        {2, 3, 4, QString("connect"), QVariant()}
+    };
+    for (const auto &row : containerInterfaceLinks) {
+        if (!prepareAndExec(query,
+                            "INSERT INTO container_interface_link (parent_container_id, from_interface_id, to_interface_id, link_type, notes) VALUES (?,?,?,?,?)",
+                            row, errorMessage)) {
+            cleanup();
+            return false;
+        }
+    }
+
     const QList<QList<QVariant>> containerStates = {
-        {1, 3, QString("PSU 正常"), QString("normal"), 0, 0.99, QString("输出稳定在 24V"), QVariant()},
-        {2, 3, QString("PSU 输出失效"), QString("fault"), 0, 0.01, QString("输出降为 0V"), QVariant()},
-        {3, 4, QString("执行器正常"), QString("normal"), 0, 0.98, QString("输出 8bar 压力"), QVariant()},
-        {4, 4, QString("执行器卡滞"), QString("fault"), 0, 0.02, QString("输出压力为 0bar"), QVariant()},
-        {5, 2, QString("子系统正常"), QString("normal"), 1, QVariant(), QString("聚合子级正常状态"), QString("component")},
-        {6, 2, QString("子系统故障"), QString("fault"), 1, QVariant(), QString("聚合子级故障状态"), QString("component")}
+        {1, 3, QString("PSU 正常"), QString("normal"), 0, 0.99, QString("输出稳定在 24V"), QString("code:normal")},
+        {2, 3, QString("PSU 输出失效"), QString("fault"), 0, 0.01, QString("输出降为 0V"), QString("code:fault_output_drop")},
+        {3, 4, QString("执行器正常"), QString("normal"), 0, 0.98, QString("输出 8bar 压力"), QString("code:normal")},
+        {4, 4, QString("执行器卡滞"), QString("fault"), 0, 0.02, QString("输出压力为 0bar"), QString("code:fault_stuck")},
+        {5, 2, QString("子系统正常"), QString("normal"), 1, QVariant(), QString("聚合子级正常状态"), QString("aggregate:normal")},
+        {6, 2, QString("子系统故障"), QString("fault"), 1, QVariant(), QString("聚合子级故障状态"), QString("aggregate:fault")}
     };
     for (const auto &row : containerStates) {
         if (!prepareAndExec(query,
@@ -650,14 +701,104 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
     }
 
     const QList<QList<QVariant>> stateBehaviors = {
-        {1, 1, QString("expr"), QString("PSU-1.Vout = 24"), QString()},
-        {2, 2, QString("expr"), QString("PSU-1.Vout = 0"), QString()},
-        {3, 3, QString("expr"), QString("ACT-1.Pressure = 8"), QString()},
-        {4, 4, QString("expr"), QString("ACT-1.Pressure = 0"), QString()},
-        {5, 5, QString("expr"), QString("Subsystem.Pressure = 8"), QString()},
-        {6, 6, QString("expr"), QString("Subsystem.Pressure = 0"), QString()}
+        {1, 1, QString("smt2"), psuNormalSmt(), QString()},
+        {2, 2, QString("smt2"), psuFaultSmt(), QString()},
+        {3, 3, QString("smt2"), actuatorNormalSmt(), QString()},
+        {4, 4, QString("smt2"), actuatorFaultSmt(), QString()}
     };
     for (const auto &row : stateBehaviors) {
+        if (!prepareAndExec(query,
+                            "INSERT INTO container_state_behavior (behavior_id, state_id, representation, expression, notes) VALUES (?,?,?,?,?)",
+                            row, errorMessage)) {
+            cleanup();
+            return false;
+        }
+    }
+
+    const QList<QList<QVariant>> stateCompositions = {
+        {5, 1, QString("includes")},
+        {5, 3, QString("includes")},
+        {6, 2, QString("includes")},
+        {6, 4, QString("includes")}
+    };
+    for (const auto &row : stateCompositions) {
+        if (!prepareAndExec(query,
+                            "INSERT INTO container_state_composition (parent_state_id, child_state_id, relation) VALUES (?,?,?)",
+                            row, errorMessage)) {
+            cleanup();
+            return false;
+        }
+    }
+
+    auto buildAggregatedRequest = [&](int parentStateId) -> AggregatedStateRequest {
+        AggregatedStateRequest request;
+        request.parentStateId = parentStateId;
+        QSqlQuery compQuery(db);
+        compQuery.prepare(QStringLiteral("SELECT child_state_id FROM container_state_composition WHERE parent_state_id = ?"));
+        compQuery.bindValue(0, parentStateId);
+        if (!compQuery.exec())
+            return request;
+
+        while (compQuery.next()) {
+            const int childStateId = compQuery.value(0).toInt();
+
+            QSqlQuery stateQuery(db);
+            stateQuery.prepare(QStringLiteral("SELECT container_id, analysis_scope FROM container_state WHERE state_id = ?"));
+            stateQuery.bindValue(0, childStateId);
+            if (!stateQuery.exec() || !stateQuery.next())
+                continue;
+
+            const int childContainerId = stateQuery.value(0).toInt();
+            const QString scope = stateQuery.value(1).toString();
+            QString stateCode = scope;
+            const int idx = scope.indexOf(QLatin1Char(':'));
+            if (idx >= 0)
+                stateCode = scope.mid(idx + 1);
+
+            QSqlQuery equipQuery(db);
+            equipQuery.prepare(QStringLiteral("SELECT equipment_id FROM container_component WHERE container_id = ?"));
+            equipQuery.bindValue(0, childContainerId);
+            if (!equipQuery.exec() || !equipQuery.next())
+                continue;
+            const int equipmentId = equipQuery.value(0).toInt();
+            request.childStateCodes.insert(equipmentId, stateCode);
+        }
+        return request;
+    };
+
+    const QList<int> subsystemEquipmentIds = {1, 2};
+    QString aggregatorError;
+    const QList<ComponentSmtDefinition> subsystemComponents =
+        SmtAggregationService::loadComponentDefinitions(db, subsystemEquipmentIds, &aggregatorError);
+    const QStringList subsystemConstraints =
+        SmtAggregationService::buildConnectionConstraints(db, 2, &aggregatorError);
+    if (!aggregatorError.isEmpty())
+        qWarning() << "SMT aggregation warning:" << aggregatorError;
+
+    QStringList subsystemInterfaceNames;
+    QSqlQuery ifaceQuery(db);
+    ifaceQuery.prepare(QStringLiteral("SELECT name FROM container_interface WHERE container_id = ?"));
+    ifaceQuery.bindValue(0, 2);
+    if (ifaceQuery.exec()) {
+        while (ifaceQuery.next())
+            subsystemInterfaceNames.append(ifaceQuery.value(0).toString());
+    }
+
+    AggregatedStateRequest subsystemNormalRequest = buildAggregatedRequest(5);
+    subsystemNormalRequest.containerInterfaceNames = subsystemInterfaceNames;
+    AggregatedStateRequest subsystemFaultRequest = buildAggregatedRequest(6);
+    subsystemFaultRequest.containerInterfaceNames = subsystemInterfaceNames;
+    const QString subsystemNormalSmt =
+        SmtAggregationService::composeAggregatedStateScript(subsystemComponents, subsystemNormalRequest, subsystemConstraints);
+    const QString subsystemFaultSmt =
+        SmtAggregationService::composeAggregatedStateScript(subsystemComponents, subsystemFaultRequest, subsystemConstraints);
+
+    const QList<QList<QVariant>> subsystemBehaviorRows = {
+        {5, 5, QString("smt2"), subsystemNormalSmt, QString()},
+        {6, 6, QString("smt2"), subsystemFaultSmt, QString()}
+    };
+
+    for (const auto &row : subsystemBehaviorRows) {
         if (!prepareAndExec(query,
                             "INSERT INTO container_state_behavior (behavior_id, state_id, representation, expression, notes) VALUES (?,?,?,?,?)",
                             row, errorMessage)) {
@@ -770,6 +911,62 @@ bool DemoProjectBuilder::populateProjectDatabase(const QString &dbPath, QString 
     for (const auto &row : testCoverage) {
         if (!prepareAndExec(query,
                             "INSERT INTO test_fault_coverage (test_id, state_id, coverage_type, confidence) VALUES (?,?,?,?)",
+                            row, errorMessage)) {
+            cleanup();
+            return false;
+        }
+    }
+
+    const QList<QList<QVariant>> diagnosisFaults = {
+        {1, 2, QString("f01"), QString("PSU 输出失效"), QString("电源输出为零"), QString("component"), QString("major"), QVariant()},
+        {2, 4, QString("f02"), QString("执行器卡滞"), QString("执行器输出为零"), QString("component"), QString("major"), QVariant()},
+        {3, 6, QString("f03"), QString("子系统故障"), QString("子系统聚合故障"), QString("system"), QString("critical"), QVariant()}
+    };
+    for (const auto &row : diagnosisFaults) {
+        if (!prepareAndExec(query,
+                            "INSERT INTO diagnosis_fault (fault_id, state_id, code, name, description, category, severity, metadata_json) VALUES (?,?,?,?,?,?,?,?)",
+                            row, errorMessage)) {
+            cleanup();
+            return false;
+        }
+    }
+
+    const QList<QList<QVariant>> diagnosisTests = {
+        {1, 1, QString("t01"), QString("PSU 输出电压测试"), QString("测量 PSU 输出是否稳定"), QString("signal"), QString("component"), QVariant()},
+        {2, 2, QString("t02"), QString("执行器压力测试"), QString("测量执行器输出压力"), QString("signal"), QString("component"), QVariant()},
+        {3, 3, QString("t03"), QString("系统功能验证"), QString("验证 DeliverPressure 功能"), QString("function"), QString("subsystem"), QVariant()},
+        {4, 4, QString("t04"), QString("PSU 故障诊断"), QString("定位 PSU 输出失效"), QString("fault-mode"), QString("component"), QVariant()}
+    };
+    for (const auto &row : diagnosisTests) {
+        if (!prepareAndExec(query,
+                            "INSERT INTO diagnosis_test (diagnosis_test_id, test_id, code, name, description, test_type, scope, metadata_json) VALUES (?,?,?,?,?,?,?,?)",
+                            row, errorMessage)) {
+            cleanup();
+            return false;
+        }
+    }
+
+    const QList<QVariant> diagnosisMatrixRow = {1, 2, QString("v1"), QString("DemoWorkflow 依赖矩阵")};
+    if (!prepareAndExec(query,
+                        "INSERT INTO diagnosis_matrix (matrix_id, container_id, version, notes) VALUES (?,?,?,?)",
+                        diagnosisMatrixRow, errorMessage)) {
+        cleanup();
+        return false;
+    }
+
+    const QList<QList<QVariant>> diagnosisMatrixEntries = {
+        {1, 1, 1, QString("detect"), 0.95, QString("analysis"), QString()},
+        {1, 1, 3, QString("detect"), 0.60, QString("analysis"), QString("子系统故障包含 PSU 故障")},
+        {1, 2, 2, QString("detect"), 0.93, QString("analysis"), QString()},
+        {1, 2, 3, QString("detect"), 0.55, QString("analysis"), QString("子系统故障包含执行器故障")},
+        {1, 3, 1, QString("detect"), 0.90, QString("analysis"), QString()},
+        {1, 3, 2, QString("detect"), 0.90, QString("analysis"), QString()},
+        {1, 3, 3, QString("isolate"), 0.80, QString("analysis"), QString("聚合故障通过功能测试识别")},
+        {1, 4, 1, QString("isolate"), 0.90, QString("analysis"), QString()}
+    };
+    for (const auto &row : diagnosisMatrixEntries) {
+        if (!prepareAndExec(query,
+                            "INSERT INTO diagnosis_matrix_entry (matrix_id, diagnosis_test_id, fault_id, effect, weight, evidence_type, notes) VALUES (?,?,?,?,?,?,?)",
                             row, errorMessage)) {
             cleanup();
             return false;
@@ -1126,6 +1323,23 @@ QString DemoProjectBuilder::psuTModel()
     return QString::fromUtf8(model);
 }
 
+QString DemoProjectBuilder::psuSmtVariables()
+{
+    return QStringLiteral("(declare-fun PSU-1.Vout () Real)\n"
+                          "(declare-fun PSU-1.InputVoltage () Real)");
+}
+
+QString DemoProjectBuilder::psuNormalSmt()
+{
+    return QStringLiteral("(assert (>= PSU-1.InputVoltage 22))\n"
+                          "(assert (= PSU-1.Vout 24))");
+}
+
+QString DemoProjectBuilder::psuFaultSmt()
+{
+    return QStringLiteral("(assert (= PSU-1.Vout 0))");
+}
+
 QString DemoProjectBuilder::psuBehaviorJson()
 {
     QJsonObject normal;
@@ -1168,6 +1382,24 @@ QString DemoProjectBuilder::actuatorBehaviorJson()
     behavior.insert(QString("normal"), normal);
     behavior.insert(QString("faults"), QJsonArray{fault});
     return compactJson(behavior);
+}
+
+QString DemoProjectBuilder::actuatorSmtVariables()
+{
+    return QStringLiteral("(declare-fun ACT-1.Pressure () Real)\n"
+                          "(declare-fun ACT-1.Supply () Real)\n"
+                          "(declare-fun ACT-1.Command () Bool)");
+}
+
+QString DemoProjectBuilder::actuatorNormalSmt()
+{
+    return QStringLiteral("(assert (=> ACT-1.Command (= ACT-1.Pressure 8)))\n"
+                          "(assert (>= ACT-1.Supply 5))");
+}
+
+QString DemoProjectBuilder::actuatorFaultSmt()
+{
+    return QStringLiteral("(assert (= ACT-1.Pressure 0))");
 }
 
 QString DemoProjectBuilder::subsystemBehaviorJson()

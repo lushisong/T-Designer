@@ -23,8 +23,14 @@ private:
     static QString coilTModel();
     static QString elecPortTModel();
     static QString psuTModel();
+    static QString psuSmtVariables();
+    static QString psuNormalSmt();
+    static QString psuFaultSmt();
     static QString psuBehaviorJson();
     static QString actuatorBehaviorJson();
+    static QString actuatorSmtVariables();
+    static QString actuatorNormalSmt();
+    static QString actuatorFaultSmt();
     static QString subsystemBehaviorJson();
     static QStringList demoTestJsonList();
 };
